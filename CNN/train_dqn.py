@@ -170,7 +170,7 @@ def worker(worker_id, num_episodes):
             state = next_state
 
             if len(local_agent.replay_buffer) > batch_size and i % TRAINING_INTERVAL == 0:
-                local_agent.replay(batch_size)r
+                local_agent.replay(batch_size)
             if worker_id == 0 and i % 1000 == 0:
                 print(f"Worker {worker_id} | Episode {episode}/{NUM_EPISODES} | Iteration {i} | Epsilon: {local_agent.epsilon} | Reward: {cumulative_reward} | Time: {time() - start_time} | Progress: {game.total} | Min: {min_iteration}", flush=True)
 
