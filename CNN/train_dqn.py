@@ -18,6 +18,18 @@ os.makedirs("CNN/Progress_imgs", exist_ok=True)
 os.system('clear')
 plt.switch_backend('Agg')
 
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+
 batch_size = 128
 iteration_history = []
 score_history = []
@@ -218,7 +230,7 @@ def worker(worker_id, num_episodes):
                 if worker_min_iteration < min_iteration:
                     min_iteration = worker_min_iteration
                     best_sequence = game.get_action_history()
-            print(f"\033[31m New global min_iteration: {min_iteration} by worker {worker_id}!\033[0m")
+            print(f"{bcolors.OKGREEN} New global min_iteration: {min_iteration} by worker {worker_id}!{bcolors.ENDC}")
 
             with global_agent_lock:
                 global_agent.load_from_agent(local_agent)
