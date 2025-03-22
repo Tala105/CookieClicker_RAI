@@ -23,6 +23,8 @@ class Agent:
             self.epsilon_decay = epsilon_decay
             self.learning_rate = learning_rate
             self.replay_buffer = deque(maxlen=buffer_size)
+            self.iteration_history = []
+            self.score_history = []
 
             self._build_model()
             self.sess = tf.compat.v1.Session(graph=self.graph)

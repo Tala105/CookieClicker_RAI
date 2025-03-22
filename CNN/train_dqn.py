@@ -49,6 +49,27 @@ latest_metadata_file = None
 
 tf.compat.v1.disable_eager_execution()
 
+
+def save_history(iteration_history, score_history, episode):
+    with open(f"CNN/Metadata_saved_files/best_history.json", 'w') as f:
+        history = {
+            'iterations': iteration_history,
+            'scores': score_history,
+            'episode': episode
+        }
+        json.dump(history, f)
+
+def load_history():
+    if not os.path.exists(f"CNN/Metadata_saved_files/best_history.json"):
+        return [], [], -1
+    with open(f"CNN/Metadata_saved_files/best_history.json", 'r') as f:
+        history = json.load(f)
+        iterations = history['iterations']
+        scores = history['scores']
+        episode = history['episode']
+    return iterations, scores, episode
+
+
 global_graph = tf.Graph()
 with global_graph.as_default():
     global_agent = Agent(state_size, action_size, graph=global_graph)
@@ -79,10 +100,11 @@ with global_graph.as_default():
                 latest_episode = metadata.get('episode', -1)
             global_agent.epsilon = epsilon
             global_agent.load(latest_checkpoint)
-            global_agent.save("CNN/temp/temporary_model.h5")
+            global_agent.iteration_history, global_agent.score_history, latest_episode = load_history()
             print(f"Loaded checkpoint (Episode {latest_episode}, Epsilon: {epsilon})")
     else:
         print("No checkpoint found. Starting from scratch.")
+
 
 def get_wait_threshold(progress_counter):
     base = 60
@@ -101,7 +123,6 @@ def worker(worker_id, num_episodes):
 
     local_agent.epsilon = epsilon
     worker_min_iteration = min_iteration
-    worker_iteration_history = []
     worker_score_history = []
     local_agent.load_from_agent(global_agent)
 
@@ -185,11 +206,13 @@ def worker(worker_id, num_episodes):
                           f"Min: {min_iteration} | Epsilon: {local_agent.epsilon:.3f}", flush=True)
                 break
 
-        worker_iteration_history.append(i)
+        local_agent.iteration_history.append(i)
         worker_score_history.append(cumulative_reward)
 
         if i < worker_min_iteration:
             worker_min_iteration = i
+            best_sequence = game.get_action_history()
+            best_worker = worker_id
 
             with min_iteration_lock:
                 if worker_min_iteration < min_iteration:
@@ -203,13 +226,16 @@ def worker(worker_id, num_episodes):
 
         if episode % PLOT_INTERVAL == 0:
             with plot_lock:
-                plot_queue.put((worker_id, list(range(1, len(worker_iteration_history))), worker_iteration_history.copy(), worker_score_history.copy()))
+                plot_queue.put((worker_id, list(range(1, len(episode+1))), local_agent.iteration_history.copy(), worker_score_history.copy()))
+                if worker_id == best_worker:
+                    save_history(local_agent.iteration_history, worker_score_history, episode)
                 plot_event.set()
             with checkpoint_lock:
                 checkpoint_queue.put((global_agent, episode, min_iteration))
                 checkpoint_event.set()
 
-    return worker_iteration_history, worker_score_history
+    return local_agent.iteration_history, worker_score_history
+
 
 def plot_progress(episodes, iteration_history, score_history, worker_id):
     plt.figure(figsize=(12, 6))

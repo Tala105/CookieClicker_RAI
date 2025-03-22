@@ -7,6 +7,7 @@ checkpoint
 *.png
 *.json
 *.h5.*
-**/.vscode/
-**/.idea/
-**/__pycache__/
+
+venv/
+Metadata_saved_files/
+Progress_imgs/
