@@ -3,6 +3,8 @@ import numpy as np
 import random
 from collections import deque
 from queue import Queue
+import tempfile
+import os
 
 plot_queue = Queue()
 checkpoint_queue = Queue()
@@ -78,3 +80,9 @@ class Agent:
         with self.graph.as_default():
             saver = tf.compat.v1.train.Saver()
             saver.restore(self.sess, name)
+
+    def load_from_agent(self, source_agent):
+        variables = tf.compat.v1.global_variables()
+        values = source_agent.sess.run(variables)
+        for var, value in zip(variables, values):
+            self.sess.run(var.assign(value))

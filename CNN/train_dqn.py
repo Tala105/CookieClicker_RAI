@@ -10,7 +10,10 @@ from Constants import NUM_EPISODES, PLOT_INTERVAL, PRINT_INTERVAL, TRAINING_INTE
 from CNN.agente import Agent
 from CNN.utils import reward_engineering_cookie
 import matplotlib.pyplot as plt
-from queue import Queue
+from queue import Queue, Empty
+
+os.makedirs("CNN/Metadata_saved_files", exist_ok=True)
+os.makedirs("CNN/Progress_imgs", exist_ok=True)
 
 os.system('clear')
 plt.switch_backend('Agg')
@@ -35,6 +38,10 @@ checkpoint_counter = 0
 checkpoint_counter_lock = threading.Lock()
 checkpoint_event = threading.Event()
 
+plot_counter = 0
+plot_lock = threading.Lock()
+plot_event = threading.Event()
+
 latest_episode = -1
 epsilon = 1.0
 latest_checkpoint = None
@@ -46,7 +53,7 @@ global_graph = tf.Graph()
 with global_graph.as_default():
     global_agent = Agent(state_size, action_size, graph=global_graph)
 
-    checkpoint_file = 'checkpoint'
+    checkpoint_file = 'CNN/Metadata_saved_files/checkpoint'
     if os.path.exists(checkpoint_file):
         with open(checkpoint_file, 'r') as file:
             content = file.read().strip().splitlines()
@@ -56,24 +63,24 @@ with global_graph.as_default():
             for line in content:
                 if line.startswith('model_checkpoint_path:'):
                     checkpoint_name = line.split(':')[1].strip().strip('"')
-                    print(f"Found checkpoint: {checkpoint_name}")
                 elif line.startswith('all_model_checkpoint_paths:'):
                     all_checkpoints = line.split(':')[1].strip().strip('"')
 
-            latest_checkpoint = checkpoint_name
+            latest_checkpoint = os.path.join("CNN/Metadata_saved_files", checkpoint_name)
 
-    if latest_checkpoint and os.path.exists(latest_checkpoint+'.index'):
+    if latest_checkpoint and os.path.exists(latest_checkpoint + '.index'):
         global_agent.load(latest_checkpoint)
-        metadata_file = f"{latest_checkpoint.replace('.h5','_metadata.json')}"
+        metadata_file = f"{latest_checkpoint.replace('.h5', '_metadata.json')}"
         if os.path.exists(metadata_file):
             with open(metadata_file, 'r') as f:
                 metadata = json.load(f)
                 epsilon = metadata.get('epsilon', 1.0)
                 min_iteration = metadata.get('min_iteration', float('inf'))
                 latest_episode = metadata.get('episode', -1)
-                print(f"Resumed from episode {latest_episode}, epsilon: {epsilon:.4f}")
-        else:
-            print("Metadata file not found for the checkpoint!")
+            global_agent.epsilon = epsilon
+            global_agent.load(latest_checkpoint)
+            global_agent.save("CNN/temp/temporary_model.h5")
+            print(f"Loaded checkpoint (Episode {latest_episode}, Epsilon: {epsilon})")
     else:
         print("No checkpoint found. Starting from scratch.")
 
@@ -96,8 +103,7 @@ def worker(worker_id, num_episodes):
     worker_min_iteration = min_iteration
     worker_iteration_history = []
     worker_score_history = []
-
-    print(f"Worker {worker_id} starting from episode {latest_episode + 1}")
+    local_agent.load_from_agent(global_agent)
 
     for episode in range(latest_episode + 1, num_episodes + 1):
         game = Game((640, 480), 60, local_agent)
@@ -107,7 +113,6 @@ def worker(worker_id, num_episodes):
         episode_buildings = 0
         threshold = get_wait_threshold(0)
         cumulative_reward = 0.0
-        start_time = time()
         i = 0
 
         while True:
@@ -171,12 +176,13 @@ def worker(worker_id, num_episodes):
 
             if len(local_agent.replay_buffer) > batch_size and i % TRAINING_INTERVAL == 0:
                 local_agent.replay(batch_size)
-            if worker_id == 0 and i % 1000 == 0:
-                print(f"Worker {worker_id} | Episode {episode}/{NUM_EPISODES} | Iteration {i} | Epsilon: {local_agent.epsilon} | Reward: {cumulative_reward} | Time: {time() - start_time} | Progress: {game.total} | Min: {min_iteration}", flush=True)
 
             if done:
-                if (episode % PRINT_INTERVAL == 0 and episode > 3) or episode == 1 or worker_id == 0:
-                    print(f"Worker {worker_id} | Episode {episode}/{NUM_EPISODES} COMPLETED in {i} iterations! | Min: {min_iteration} | Epsilon: {local_agent.epsilon:.3f}", flush=True)
+                if episode == 1 or \
+                (episode > 3 and not episode % (PRINT_INTERVAL//10) and
+                (worker_id == 0  or not episode % PRINT_INTERVAL)):
+                    print(f"Worker {worker_id} | Episode {episode}/{NUM_EPISODES} COMPLETED in {i} iterations! |" +
+                          f"Min: {min_iteration} | Epsilon: {local_agent.epsilon:.3f}", flush=True)
                 break
 
         worker_iteration_history.append(i)
@@ -185,20 +191,23 @@ def worker(worker_id, num_episodes):
         if i < worker_min_iteration:
             worker_min_iteration = i
 
-        with min_iteration_lock:
-            if worker_min_iteration < min_iteration:
-                min_iteration = worker_min_iteration
-                best_sequence = game.get_action_history()
-                print(f"New global min_iteration: {min_iteration}")
+            with min_iteration_lock:
+                if worker_min_iteration < min_iteration:
+                    min_iteration = worker_min_iteration
+                    best_sequence = game.get_action_history()
+            print(f"\033[31m New global min_iteration: {min_iteration} by worker {worker_id}!\033[0m")
 
-        if episode % 100 == 0:
-            with open(f"checkpoint_episode_{episode}_metadata.json", 'w') as f:
-                metadata = {
-                    'epsilon': local_agent.epsilon,
-                    'episode': episode,
-                    'min_iteration': min_iteration
-                }
-                json.dump(metadata, f)
+            with global_agent_lock:
+                global_agent.load_from_agent(local_agent)
+                global_agent.epsilon = local_agent.epsilon
+
+        if episode % PLOT_INTERVAL == 0:
+            with plot_lock:
+                plot_queue.put((worker_id, list(range(1, len(worker_iteration_history))), worker_iteration_history.copy(), worker_score_history.copy()))
+                plot_event.set()
+            with checkpoint_lock:
+                checkpoint_queue.put((global_agent, episode, min_iteration))
+                checkpoint_event.set()
 
     return worker_iteration_history, worker_score_history
 
@@ -220,17 +229,27 @@ def plot_progress(episodes, iteration_history, score_history, worker_id):
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig(f"progress_worker_{worker_id}.png")
+    plt.savefig(f"CNN/Progress_imgs/progress_worker_{worker_id}.png")
     plt.close()
 
 def save_checkpoint(agent, episode, min_iteration):
-    agent.save(f"checkpoint_episode_{episode}.h5")
+    metadata_path = f"CNN/Metadata_saved_files/checkpoint_episode_{episode}_metadata.json"
+    with open(metadata_path, 'w') as f:
+        metadata = {
+            'epsilon': agent.epsilon,
+            'episode': episode,
+            'min_iteration': min_iteration
+        }
+        json.dump(metadata, f)
+    checkpoint_path = f"CNN/Metadata_saved_files/checkpoint_episode_{episode}.h5"
+    agent.save(checkpoint_path)
+    metadata_path = f"CNN/Metadata_saved_files/checkpoint_episode_{episode}_metadata.json"
     metadata = {
         "episode": episode,
         "min_iteration": min_iteration,
         "epsilon": agent.epsilon
     }
-    with open(f"checkpoint_episode_{episode}_metadata.json", "w") as f:
+    with open(metadata_path, "w") as f:
         json.dump(metadata, f)
     print(f"Saved checkpoint (Episode {episode}, Epsilon: {agent.epsilon:.4f})")
 
@@ -247,20 +266,29 @@ def main():
 
     active_workers = num_workers
     while active_workers > 0:
-        checkpoint_event.wait()
+        if plot_event.wait(timeout=0.1):
+            plot_event.clear()
+            with plot_lock:
+                while True:
+                    try:
+                        worker_id, episodes, iterations, scores = plot_queue.get_nowait()
+                        if episodes is None and iterations is None and scores is None:
+                            active_workers -= 1
+                        else:
+                            plot_progress(episodes, iterations, scores, worker_id)
+                    except Empty:
+                        break
 
-        while not plot_queue.empty():
-            worker_id, episodes, iterations, scores = plot_queue.get()
-            if episodes is None and iterations is None and scores is None:
-                active_workers -= 1
-            else:
-                plot_progress(episodes, iterations, scores, worker_id)
-
-        while not checkpoint_queue.empty():
-            agent, episode, min_iter = checkpoint_queue.get()
-            save_checkpoint(agent, episode, min_iter)
-
-        checkpoint_counter = 0
+        if checkpoint_event.wait(timeout=0.1):
+            checkpoint_event.clear()
+            with checkpoint_lock:
+                while True:
+                    try:
+                        agent, episode, min_iter = checkpoint_queue.get_nowait()
+                        if agent is not None and episode is not None and min_iter is not None:
+                            save_checkpoint(agent, episode, min_iter)
+                    except Empty:
+                        break
 
     for t in threads:
         t.join()
