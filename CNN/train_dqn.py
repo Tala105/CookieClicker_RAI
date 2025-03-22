@@ -4,11 +4,10 @@ import tensorflow as tf
 import numpy as np
 from collections import deque
 import threading
-from time import time
 from CookieClicker.game import Game
-from Constants import NUM_EPISODES, PLOT_INTERVAL, PRINT_INTERVAL, TRAINING_INTERVAL, GOAL, NUM_BUILDINGS
+from Constants import *
 from CNN.agente import Agent
-from CNN.utils import reward_engineering_cookie
+from CNN.utils import *
 import matplotlib.pyplot as plt
 from queue import Queue, Empty
 
@@ -17,18 +16,6 @@ os.makedirs("CNN/Progress_imgs", exist_ok=True)
 
 os.system('clear')
 plt.switch_backend('Agg')
-
-class bcolors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
-
 
 batch_size = 128
 iteration_history = []
@@ -61,61 +48,10 @@ latest_metadata_file = None
 
 tf.compat.v1.disable_eager_execution()
 
-
-def save_history(iteration_history, score_history, episode):
-    with open(f"CNN/Metadata_saved_files/best_history.json", 'w') as f:
-        history = {
-            'iterations': iteration_history,
-            'scores': score_history,
-            'episode': episode
-        }
-        json.dump(history, f)
-
-def load_history():
-    if not os.path.exists(f"CNN/Metadata_saved_files/best_history.json"):
-        return [], [], -1
-    with open(f"CNN/Metadata_saved_files/best_history.json", 'r') as f:
-        history = json.load(f)
-        iterations = history['iterations']
-        scores = history['scores']
-        episode = history['episode']
-    return iterations, scores, episode
-
-
 global_graph = tf.Graph()
 with global_graph.as_default():
     global_agent = Agent(state_size, action_size, graph=global_graph)
-
-    checkpoint_file = 'CNN/Metadata_saved_files/checkpoint'
-    if os.path.exists(checkpoint_file):
-        with open(checkpoint_file, 'r') as file:
-            content = file.read().strip().splitlines()
-            checkpoint_name = None
-            all_checkpoints = None
-
-            for line in content:
-                if line.startswith('model_checkpoint_path:'):
-                    checkpoint_name = line.split(':')[1].strip().strip('"')
-                elif line.startswith('all_model_checkpoint_paths:'):
-                    all_checkpoints = line.split(':')[1].strip().strip('"')
-
-            latest_checkpoint = os.path.join("CNN/Metadata_saved_files", checkpoint_name)
-
-    if latest_checkpoint and os.path.exists(latest_checkpoint + '.index'):
-        global_agent.load(latest_checkpoint)
-        metadata_file = f"{latest_checkpoint.replace('.h5', '_metadata.json')}"
-        if os.path.exists(metadata_file):
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-                epsilon = metadata.get('epsilon', 1.0)
-                min_iteration = metadata.get('min_iteration', float('inf'))
-                latest_episode = metadata.get('episode', -1)
-            global_agent.epsilon = epsilon
-            global_agent.load(latest_checkpoint)
-            global_agent.iteration_history, global_agent.score_history, latest_episode = load_history()
-            print(f"Loaded checkpoint (Episode {latest_episode}, Epsilon: {epsilon})")
-    else:
-        print("No checkpoint found. Starting from scratch.")
+    metadata, epsilon, min_iteration, all_checkpoints, latest_episode = load_from_checkpoint(global_agent)
 
 
 def get_wait_threshold(progress_counter):
@@ -137,6 +73,8 @@ def worker(worker_id, num_episodes):
     worker_min_iteration = min_iteration
     worker_score_history = []
     local_agent.load_from_agent(global_agent)
+    best_worker = -1
+    local_RESET_INTERVAL = INITIAL_RESET_INTERVAL
 
     for episode in range(latest_episode + 1, num_episodes + 1):
         game = Game((640, 480), 60, local_agent)
@@ -164,12 +102,10 @@ def worker(worker_id, num_episodes):
 
             current_cookies = game.cookies
             cost = bought.cost
-            progress_counter = max(progress_counter, game.total // 1000)
 
             if action < NUM_BUILDINGS:
                 episode_buildings += 1
-                threshold = get_wait_threshold(episode_buildings)
-
+                
             if current_cookies < cost:
                 required = cost - current_cookies
                 cps = game.cps
@@ -196,6 +132,8 @@ def worker(worker_id, num_episodes):
                 cumulative_reward -= 0.001
 
             next_state = game.step(action + 1)
+            progress_counter = max(progress_counter, game.total // 1000)
+            threshold = get_wait_threshold(episode_buildings)
             done = game.total >= GOAL
             next_state = np.reshape(next_state, [1, state_size])
             reward = reward_engineering_cookie(reward, state[0], action, next_state[0], done)
@@ -214,7 +152,7 @@ def worker(worker_id, num_episodes):
                 if episode == 1 or \
                 (episode > 3 and not episode % (PRINT_INTERVAL//10) and
                 (worker_id == 0  or not episode % PRINT_INTERVAL)):
-                    print(f"Worker {worker_id} | Episode {episode}/{NUM_EPISODES} COMPLETED in {i} iterations! |" +
+                    print(f"Worker {worker_id} | Episode {episode}/{NUM_EPISODES} COMPLETED in {i} iterations! | " +
                           f"Min: {min_iteration} | Epsilon: {local_agent.epsilon:.3f}", flush=True)
                 break
 
@@ -223,28 +161,31 @@ def worker(worker_id, num_episodes):
 
         if i < worker_min_iteration:
             worker_min_iteration = i
-            best_sequence = game.get_action_history()
-            best_worker = worker_id
 
             with min_iteration_lock:
                 if worker_min_iteration < min_iteration:
                     min_iteration = worker_min_iteration
                     best_sequence = game.get_action_history()
-            print(f"{bcolors.OKGREEN} New global min_iteration: {min_iteration} by worker {worker_id}!{bcolors.ENDC}")
+                    best_worker = worker_id
+                    print(f"{bcolors.OKGREEN} New global min_iteration: {min_iteration} by worker {worker_id}!{bcolors.ENDC}")
 
             with global_agent_lock:
                 global_agent.load_from_agent(local_agent)
                 global_agent.epsilon = local_agent.epsilon
 
-        if episode % PLOT_INTERVAL == 0:
+        if episode % PLOT_INTERVAL == 0 and episode:
             with plot_lock:
-                plot_queue.put((worker_id, list(range(1, len(episode+1))), local_agent.iteration_history.copy(), worker_score_history.copy()))
+                plot_queue.put((worker_id, list(range(1, episode)), local_agent.iteration_history.copy(), worker_score_history.copy()))
                 if worker_id == best_worker:
                     save_history(local_agent.iteration_history, worker_score_history, episode)
                 plot_event.set()
             with checkpoint_lock:
                 checkpoint_queue.put((global_agent, episode, min_iteration))
                 checkpoint_event.set()
+
+        if episode % (local_RESET_INTERVAL) == 0:
+            local_agent.epsilon_reset()
+            local_RESET_INTERVAL = int(2.5*local_RESET_INTERVAL)
 
     return local_agent.iteration_history, worker_score_history
 
