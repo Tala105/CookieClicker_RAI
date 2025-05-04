@@ -14,7 +14,6 @@ from queue import Queue, Empty
 os.makedirs("CNN/Metadata_saved_files", exist_ok=True)
 os.makedirs("CNN/Progress_imgs", exist_ok=True)
 
-os.system('clear')
 plt.switch_backend('Agg')
 
 batch_size = 128
@@ -62,7 +61,18 @@ def get_wait_threshold(progress_counter):
 
 checkpoint_lock = threading.Lock()
 
+def print_condition(episode, worker_id=0):
+    if episode >=1 :
+        if episode == 1:
+            return True
+        if episode % (PRINT_INTERVAL//10) == 0 and worker_id == 0:
+            return True
+        if episode % PRINT_INTERVAL:
+            return True
+    return False
+
 def worker(worker_id, num_episodes):
+    os.system('cls' if os.name == 'nt' else 'clear')
     global min_iteration, best_sequence, iteration_history, score_history, checkpoint_counter, latest_episode, epsilon
 
     worker_graph = tf.Graph()
@@ -149,10 +159,8 @@ def worker(worker_id, num_episodes):
                 local_agent.replay(batch_size)
 
             if done:
-                if episode == 1 or \
-                (episode > 3 and not episode % (PRINT_INTERVAL//10) and
-                (worker_id == 0  or not episode % PRINT_INTERVAL)):
-                    print(f"Worker {worker_id} | Episode {episode}/{NUM_EPISODES} COMPLETED in {i} iterations! | " +
+                if print_condition(episode, worker_id):
+                    print(f"Worker {worker_id:2} | Episode {episode:4}/{NUM_EPISODES} COMPLETED in {i:6} iterations! | " +
                           f"Min: {min_iteration} | Epsilon: {local_agent.epsilon:.3f}", flush=True)
                 break
 
@@ -167,7 +175,11 @@ def worker(worker_id, num_episodes):
                     min_iteration = worker_min_iteration
                     best_sequence = game.get_action_history()
                     best_worker = worker_id
-                    print(f"{bcolors.OKGREEN} New global min_iteration: {min_iteration} by worker {worker_id}!{bcolors.ENDC}")
+                    print(f"{bcolors.OKGREEN} New global min_iteration: {min_iteration:5} by worker {worker_id:3}! epsilon: {local_agent.epsilon:3f}{bcolors.ENDC}")
+                    
+                    with checkpoint_lock:
+                        checkpoint_queue.put((global_agent, episode, min_iteration, best_sequence))
+                        checkpoint_event.set()
 
             with global_agent_lock:
                 global_agent.load_from_agent(local_agent)
@@ -179,9 +191,7 @@ def worker(worker_id, num_episodes):
                 if worker_id == best_worker:
                     save_history(local_agent.iteration_history, worker_score_history, episode)
                 plot_event.set()
-            with checkpoint_lock:
-                checkpoint_queue.put((global_agent, episode, min_iteration))
-                checkpoint_event.set()
+            
 
         if episode % (local_RESET_INTERVAL) == 0:
             local_agent.epsilon_reset()
@@ -194,14 +204,14 @@ def plot_progress(episodes, iteration_history, score_history, worker_id):
     plt.figure(figsize=(12, 6))
 
     plt.subplot(1, 2, 1)
-    plt.plot(episodes, iteration_history, label=f"Worker {worker_id}")
+    plt.plot(episodes+1, iteration_history, label=f"Worker {worker_id}")
     plt.xlabel("Episodes")
     plt.ylabel("Iterations")
     plt.title("Iteration Progress")
     plt.legend()
 
     plt.subplot(1, 2, 2)
-    plt.plot(episodes, score_history, label=f"Worker {worker_id}")
+    plt.plot(episodes+1, score_history, label=f"Worker {worker_id}")
     plt.xlabel("Episodes")
     plt.ylabel("Cumulative Reward")
     plt.title("Reward Progress")
@@ -211,25 +221,18 @@ def plot_progress(episodes, iteration_history, score_history, worker_id):
     plt.savefig(f"CNN/Progress_imgs/progress_worker_{worker_id}.png")
     plt.close()
 
-def save_checkpoint(agent, episode, min_iteration):
+def save_checkpoint(agent: Agent, episode: int, min_iteration: int, best_sequence=[]):
     metadata_path = f"CNN/Metadata_saved_files/checkpoint_episode_{episode}_metadata.json"
     with open(metadata_path, 'w') as f:
         metadata = {
             'epsilon': agent.epsilon,
             'episode': episode,
-            'min_iteration': min_iteration
+            'min_iteration': min_iteration,
+            'best_sequence': best_sequence
         }
         json.dump(metadata, f)
     checkpoint_path = f"CNN/Metadata_saved_files/checkpoint_episode_{episode}.h5"
     agent.save(checkpoint_path)
-    metadata_path = f"CNN/Metadata_saved_files/checkpoint_episode_{episode}_metadata.json"
-    metadata = {
-        "episode": episode,
-        "min_iteration": min_iteration,
-        "epsilon": agent.epsilon
-    }
-    with open(metadata_path, "w") as f:
-        json.dump(metadata, f)
     print(f"Saved checkpoint (Episode {episode}, Epsilon: {agent.epsilon:.4f})")
 
 def main():
@@ -254,7 +257,7 @@ def main():
                         if episodes is None and iterations is None and scores is None:
                             active_workers -= 1
                         else:
-                            plot_progress(episodes, iterations, scores, worker_id)
+                            plot_progress(episodes, iterations, scores, worker_id, best_sequence)
                     except Empty:
                         break
 
@@ -263,9 +266,9 @@ def main():
             with checkpoint_lock:
                 while True:
                     try:
-                        agent, episode, min_iter = checkpoint_queue.get_nowait()
+                        agent, episode, min_iter, best_sequence = checkpoint_queue.get_nowait()
                         if agent is not None and episode is not None and min_iter is not None:
-                            save_checkpoint(agent, episode, min_iter)
+                            save_checkpoint(agent, episode, min_iter, best_sequence)
                     except Empty:
                         break
 

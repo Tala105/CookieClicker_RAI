@@ -45,6 +45,12 @@ def load_history():
 
 
 def load_from_checkpoint(global_agent):
+    metadata = None
+    epsilon = 1.0
+    min_iteration = float('inf')
+    all_checkpoints = None
+    latest_episode = 0
+    
     if os.path.exists(CHECKPOINT_FILE):
         with open(CHECKPOINT_FILE, 'r') as file:
             content = file.read().strip().splitlines()
@@ -59,20 +65,20 @@ def load_from_checkpoint(global_agent):
 
             latest_checkpoint = os.path.join("CNN/Metadata_saved_files", checkpoint_name)
 
-    if latest_checkpoint and os.path.exists(latest_checkpoint + '.index'):
-        global_agent.load(latest_checkpoint)
-        metadata_file = f"{latest_checkpoint.replace('.h5', '_metadata.json')}"
-        if os.path.exists(metadata_file):
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-                epsilon = metadata.get('epsilon', 1.0)
-                min_iteration = metadata.get('min_iteration', float('inf'))
-                latest_episode = metadata.get('episode', 0)
-            global_agent.epsilon = epsilon
+        if os.path.exists(latest_checkpoint + '.index') and latest_checkpoint:
             global_agent.load(latest_checkpoint)
-            global_agent.iteration_history, global_agent.score_history, latest_episode = load_history()
-            print(f"Loaded checkpoint (Episode {latest_episode}, Epsilon: {epsilon})")
-    else:
-        print("No checkpoint found. Starting from scratch.")
+            metadata_file = f"{latest_checkpoint.replace('.h5', '_metadata.json')}"
+            if os.path.exists(metadata_file):
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                    epsilon = metadata.get('epsilon', 1.0)
+                    min_iteration = metadata.get('min_iteration', float('inf'))
+                    latest_episode = metadata.get('episode', 0)
+                global_agent.epsilon = epsilon
+                global_agent.load(latest_checkpoint)
+                global_agent.iteration_history, global_agent.score_history, latest_episode = load_history()
+                print(f"Loaded checkpoint (Episode {latest_episode}, Epsilon: {epsilon})")
+        else:
+            print("No checkpoint found. Starting from scratch.")
 
     return metadata, epsilon, min_iteration, all_checkpoints, latest_episode
