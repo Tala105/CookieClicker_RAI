@@ -12,6 +12,8 @@ from CNN.agente import Agent
 from Constants import CHECKPOINT_FILE, BUILDING_COSTS, UPGRADE_COSTS, BUILDING_IDS, UPGRADES_IDS, UPGRADE_COSTS_GROWTH
 
 
+clicking_upgrade_data_id = "75"
+
 def click_on_element(driver, by_type, element_id, wait_time = 15, parent_div: WebElement = None):
     if not parent_div:
         WebDriverWait(driver, wait_time).until(
@@ -61,7 +63,9 @@ def main():
     driver.implicitly_wait(5)
     click_on_element(driver, By.ID, "langSelect-EN")
     sleep(2)
+    click_on_element(driver, By.ID, "statsButton")
     upgrades = driver.find_element(By.ID, "upgrades")
+    total = 0
     for element in buying_sequence:
         current_target = int(element)
         print(f"Current target: {current_target}")
@@ -72,7 +76,14 @@ def main():
         else:
             target_id = upgrade_ids[current_target - len(buildings_cost)].pop(0)
             current_cost = upgrades_cost[current_target - len(buildings_cost)-1]
-            
+        total = int(WebDriverWait(driver,10).until(lambda d: d.find_element(By.ID, "statsGeneral").find_elements(By.CLASS_NAME, "listing")[1].text.split("\n")[1]))
+        print(f"Total: {total}")
+        if total > 1e5: # There is ONE click upgrade costing less than 1 mil, just not worth using the agent to account for it
+            while 5e4 > cookies:
+                click_on_element(driver, By.ID, "bigCookie")
+                cookies = driver.find_element(By.ID, "cookies").text.split(" ")[0].replace(",", "")
+                cookies = int(cookies)
+            WebDriverWait(driver, 10).until(lambda d: upgrades.find_element(By.CSS_SELECTOR, f'[data-id="{clicking_upgrade_data_id}"]')).click()
             
         while current_cost > cookies:
             click_on_element(driver, By.ID, "bigCookie")
@@ -84,17 +95,10 @@ def main():
                 click_on_element(driver, By.ID, "bigCookie")
             buildings_cost[current_target-1] = int(driver.find_element(By.ID, target_id[:-1] + "Price" + target_id[-1]).text.split(" ")[0].replace(",", ""))
         else:
-            element = WebDriverWait(driver, 10).until(
-                lambda d: upgrades.find_element(By.CSS_SELECTOR, f'[data-id="{target_id}"]')
-                ).click()
+            WebDriverWait(driver, 10).until(lambda d: upgrades.find_element(By.CSS_SELECTOR, f'[data-id="{target_id}"]')).click()
             upgrades_cost[current_target - len(buildings_cost)-1] *= upgrades_costs_growth[current_target - len(buildings_cost)].pop(0)
         cookies = 0
-        
-        
-
         
 
 if __name__ == "__main__":
     main()
-
-    

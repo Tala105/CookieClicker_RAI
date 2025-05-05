@@ -25,10 +25,11 @@ class Game:
         self.max_upgrade_cost = 10 ** 6
 
         for i in range(NUM_BUILDINGS):
-            self.buildings.append(Building((self.screenSize[0] - 500, 50 + i * 40),
-                                           f"{NAMES[i]}", BUILDING_COSTS[i], CPS[i]))
-            self.upgrades.append(Upgrade((self.screenSize[0] - 250, 50 + i * 40),
-                                         f"Up {NAMES[i]}", UPGRADE_COSTS[i], self.buildings[i]))
+            building = Building((self.screenSize[0] - 500, 50 + i * 40), f"{NAMES[i]}", BUILDING_COSTS[i], CPS[i])
+            upgrade = Upgrade((self.screenSize[0] - 250, 50 + i * 40), f"Up {NAMES[i]}", UPGRADE_COSTS[i], building)
+            self.buildings.append(building)
+            self.upgrades.append(upgrade)
+
         self.agent = agente
         self.render = render
         self.cookie_image = pygame.image.load("CookieClicker/images/cookie.png")
@@ -128,7 +129,7 @@ class Game:
         self.cookies += self.cps / self.fps
         self.total += self.cps / self.fps
         for upgrade in self.upgrades:
-            upgrade.update(self)
+            upgrade.update()
         if self.render:
             self.draw()
             pygame.display.flip()

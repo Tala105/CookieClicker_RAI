@@ -1,10 +1,10 @@
+
+from typing_extensions import Self
 import tensorflow as tf
 import numpy as np
 import random
 from collections import deque
 from queue import Queue
-import tempfile
-import os
 
 plot_queue = Queue()
 checkpoint_queue = Queue()
@@ -83,7 +83,9 @@ class Agent:
             saver = tf.compat.v1.train.Saver()
             saver.restore(self.sess, name)
 
-    def load_from_agent(self, source_agent):
+    def load_from_agent(self, source_agent: Self):
+        self.iteration_history = source_agent.iteration_history
+        self.score_history = source_agent.score_history
         variables = tf.compat.v1.global_variables()
         values = source_agent.sess.run(variables)
         for var, value in zip(variables, values):

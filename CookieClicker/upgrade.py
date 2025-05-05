@@ -15,7 +15,7 @@ class Upgrade():
         return f"{self.name} ({self.cost})"
     
     def buy(self, game):
-        update = self.update(game)
+        self.update()
         if self.buyable and game.cookies >= self.cost:
             game.cookies -= self.cost
             if self.building.name == "Cursor":
@@ -29,6 +29,10 @@ class Upgrade():
             return True
         return False
 
-    def update(self, game):
-        self.buyable = self.building.amount >= (self.amount+1)*10
-        return self.buyable
+    def update(self):
+        cursor_amounts = {1:1, 2:1, 3:25, 4:50, 5:100}
+        amounts = {1:1, 2:5, 3:25, 4:50, 5:100}
+        if self.building.name == "Cursor":
+            self.buyable = self.building.amount >= cursor_amounts[self.amount+1]
+        else:
+            self.buyable = self.building.amount >= amounts[self.amount+1] 
