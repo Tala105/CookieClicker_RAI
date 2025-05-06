@@ -76,9 +76,13 @@ def main():
         else:
             target_id = upgrade_ids[current_target - len(buildings_cost)].pop(0)
             current_cost = upgrades_cost[current_target - len(buildings_cost)-1]
-        total = int(WebDriverWait(driver,10).until(lambda d: d.find_element(By.ID, "statsGeneral").find_elements(By.CLASS_NAME, "listing")[1].text.split("\n")[1]))
+        total = int(WebDriverWait(driver,10).until(
+            lambda d: d.find_element(By.ID, "statsGeneral")
+            .find_elements(By.CLASS_NAME, "listing")[1]
+            .text.split("\n")[1].replace(",", "")))
+        
         print(f"Total: {total}")
-        if total > 1e5: # There is ONE click upgrade costing less than 1 mil, just not worth using the agent to account for it
+        if total > 30000: # There is ONE click upgrade costing less than 1 mil, just not worth using the agent to account for it
             while 5e4 > cookies:
                 click_on_element(driver, By.ID, "bigCookie")
                 cookies = driver.find_element(By.ID, "cookies").text.split(" ")[0].replace(",", "")
@@ -93,7 +97,9 @@ def main():
             click_on_element(driver, By.ID, target_id)
             for i in range(10):
                 click_on_element(driver, By.ID, "bigCookie")
-            buildings_cost[current_target-1] = int(driver.find_element(By.ID, target_id[:-1] + "Price" + target_id[-1]).text.split(" ")[0].replace(",", ""))
+            buildings_cost[current_target-1] = int(driver.find_element(
+                                                By.ID, target_id[:-1] + "Price" + target_id[-1])
+                                                .text.split(" ")[0].replace(",", ""))
         else:
             WebDriverWait(driver, 10).until(lambda d: upgrades.find_element(By.CSS_SELECTOR, f'[data-id="{target_id}"]')).click()
             upgrades_cost[current_target - len(buildings_cost)-1] *= upgrades_costs_growth[current_target - len(buildings_cost)].pop(0)
