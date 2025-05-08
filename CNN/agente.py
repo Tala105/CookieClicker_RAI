@@ -10,8 +10,8 @@ plot_queue = Queue()
 checkpoint_queue = Queue()
 
 class Agent:
-    def __init__(self, state_size, action_size, graph=None, training=True, gamma=0.95, epsilon=1.0,
-                 epsilon_min=0.01, epsilon_decay=0.995, learning_rate=0.001, buffer_size=10000):
+    def __init__(self, state_size, action_size, graph=None, training=True, gamma=0.98, epsilon=1.0,
+                 epsilon_min=0.001, epsilon_decay=0.95, learning_rate=0.001, buffer_size=10000):
         self.graph = graph or tf.Graph()
         with self.graph.as_default():
             self.state_size = state_size
@@ -23,7 +23,7 @@ class Agent:
             self.epsilon_decay = epsilon_decay
             self.learning_rate = learning_rate
             self.replay_buffer = deque(maxlen=buffer_size)
-            self.iteration_history = []
+            self.total_history = []
             self.score_history = []
 
             self._build_model()
@@ -84,9 +84,12 @@ class Agent:
             saver.restore(self.sess, name)
 
     def load_from_agent(self, source_agent: Self):
-        self.iteration_history = source_agent.iteration_history
-        self.score_history = source_agent.score_history
+        self.total_history = source_agent.total_history.copy()
+        self.score_history = source_agent.score_history.copy()
         variables = tf.compat.v1.global_variables()
         values = source_agent.sess.run(variables)
         for var, value in zip(variables, values):
             self.sess.run(var.assign(value))
+            
+    def replace_replay_buffer(self, new_buffer):
+        self.replay_buffer = deque(new_buffer, maxlen=self.replay_buffer.maxlen)

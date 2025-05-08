@@ -17,12 +17,6 @@ class Game:
         self.upgrades = []
         self.total_history = []
         self.action_history = []
-        self.max_total = 10 ** 6
-        self.max_cps = 10 ** 3
-        self.max_cookies = 3 * 10 ** 6
-        self.max_building_cps = 3 * 10 ** 3
-        self.max_building_cost = 10 ** 6
-        self.max_upgrade_cost = 10 ** 6
 
         for i in range(NUM_BUILDINGS):
             building = Building((self.screenSize[0] - 500, 50 + i * 40), f"{NAMES[i]}", BUILDING_COSTS[i], CPS[i])
@@ -42,13 +36,13 @@ class Game:
 
     def normalize_state(self):
         norm_state = [
-            self.total / self.max_total,
-            self.cps / self.max_cps,
+            self.total,
+            self.cps,
         ]
         for i in range(NUM_BUILDINGS):
-            norm_state.append(self.buildings[i].cps / self.max_building_cps)
-            norm_state.append(self.buildings[i].cost / self.max_building_cost)
-            norm_state.append(self.upgrades[i].cost / self.max_upgrade_cost)
+            norm_state.append(self.buildings[i].cps)
+            norm_state.append(self.buildings[i].cost)
+            norm_state.append(self.upgrades[i].cost)
         return norm_state
 
     def get_state(self):

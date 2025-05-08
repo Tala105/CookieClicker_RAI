@@ -1,6 +1,6 @@
 import os
 import json
-from time import sleep
+from time import sleep, time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -8,7 +8,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.chrome.service import Service
-from CNN.agente import Agent
 from Constants import CHECKPOINT_FILE, BUILDING_COSTS, UPGRADE_COSTS, BUILDING_IDS, UPGRADES_IDS, UPGRADE_COSTS_GROWTH
 
 
@@ -24,17 +23,22 @@ def click_on_element(driver, by_type, element_id, wait_time = 15, parent_div: We
             lambda d: parent_div.find_element((by_type, element_id))
         ).click()
 
+def click_until_enough(driver: WebElement, target_amount: int) -> None:
+    cookies_text = driver.find_element(By.ID, "cookies").text.split(" ")[0].replace(",", "")
+    cookies = int(cookies_text)
+    while cookies < target_amount:
+        click_on_element(driver, By.ID, "bigCookie")
+        cookies_text = driver.find_element(By.ID, "cookies").text.split(" ")[0].replace(",", "")
+        cookies = int(cookies_text)
+
+
 def main():
     os.system('cls' if os.name == 'nt' else 'clear')
     buildings_cost = BUILDING_COSTS.copy()
     upgrades_cost = UPGRADE_COSTS.copy()
     upgrades_costs_growth = UPGRADE_COSTS_GROWTH.copy()
     upgrade_ids = UPGRADES_IDS.copy()
-    cookies = 0
-    """State format:
-    [total_cookies, cookies_per_second, building_1_cps, building_1_cost, upgrade_1_cost,
-    building_2_cps, building_2_cost, upgrade_2_cost, ...]
-    """
+
     if os.path.exists(CHECKPOINT_FILE):
         with open(CHECKPOINT_FILE, 'r') as file:
             content = file.read().strip().splitlines()
@@ -70,7 +74,7 @@ def main():
         current_target = int(element)
         print(f"Current target: {current_target}")
 
-        if current_target < len(buildings_cost):
+        if current_target <= len(buildings_cost):
             current_cost = buildings_cost[current_target-1]
             target_id = BUILDING_IDS[current_target-1]
         else:
@@ -82,28 +86,20 @@ def main():
             .text.split("\n")[1].replace(",", "")))
         
         print(f"Total: {total}")
-        if total > 30000: # There is ONE click upgrade costing less than 1 mil, just not worth using the agent to account for it
-            while 5e4 > cookies:
-                click_on_element(driver, By.ID, "bigCookie")
-                cookies = driver.find_element(By.ID, "cookies").text.split(" ")[0].replace(",", "")
-                cookies = int(cookies)
-            WebDriverWait(driver, 10).until(lambda d: upgrades.find_element(By.CSS_SELECTOR, f'[data-id="{clicking_upgrade_data_id}"]')).click()
-            
-        while current_cost > cookies:
-            click_on_element(driver, By.ID, "bigCookie")
-            cookies = driver.find_element(By.ID, "cookies").text.split(" ")[0].replace(",", "")
-            cookies = int(cookies)
+        for _ in range(5):
+            click_on_element(driver, By.ID, "bigCookie")            
+        click_until_enough(driver, current_cost)
         if current_target < len(buildings_cost):
             click_on_element(driver, By.ID, target_id)
-            for i in range(10):
-                click_on_element(driver, By.ID, "bigCookie")
             buildings_cost[current_target-1] = int(driver.find_element(
                                                 By.ID, target_id[:-1] + "Price" + target_id[-1])
                                                 .text.split(" ")[0].replace(",", ""))
         else:
+            click_on_element(driver, By.ID, "bigCookie")
             WebDriverWait(driver, 10).until(lambda d: upgrades.find_element(By.CSS_SELECTOR, f'[data-id="{target_id}"]')).click()
             upgrades_cost[current_target - len(buildings_cost)-1] *= upgrades_costs_growth[current_target - len(buildings_cost)].pop(0)
-        cookies = 0
+        
+        old_id = element
         
 
 if __name__ == "__main__":

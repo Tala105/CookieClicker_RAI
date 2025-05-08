@@ -3,7 +3,7 @@ import os
 from Constants import CHECKPOINT_FILE
 
 
-def reward_engineering_cookie(reward, state, action, next_state, done):
+def reward_engineering_cookie(state, action, next_state, done, reward = 0):
     """
     Makes reward engineering to allow faster training in the Mountain Car environment.
 
@@ -21,15 +21,16 @@ def reward_engineering_cookie(reward, state, action, next_state, done):
     :rtype: float.
     """
     # Todo: implement reward engineering
-    reward += next_state[1] - state[1]
+    reward += next_state[0] - state[0] + next_state[1] - state[1]
     return reward
 
-def save_history(iteration_history, score_history, episode):
+def save_history(total_history, score_history, episode, threshold_counter):
     with open(f"CNN/Metadata_saved_files/best_history.json", 'w') as f:
         history = {
-            'iterations': iteration_history,
+            'totals': total_history,
             'scores': score_history,
-            'episode': episode
+            'episode': episode,
+            'threshold_counter': threshold_counter
         }
         json.dump(history, f)
 
@@ -38,7 +39,7 @@ def load_history():
         return [], [], -1
     with open(f"CNN/Metadata_saved_files/best_history.json", 'r') as f:
         history = json.load(f)
-        iterations = history['iterations']
+        iterations = history['totals']
         scores = history['scores']
         episode = history['episode']
     return iterations, scores, episode
@@ -47,7 +48,7 @@ def load_history():
 def load_from_checkpoint(global_agent):
     metadata = None
     epsilon = 1.0
-    min_iteration = float('inf')
+    max_total = 0
     all_checkpoints = None
     latest_episode = 0
     
@@ -72,13 +73,13 @@ def load_from_checkpoint(global_agent):
                 with open(metadata_file, 'r') as f:
                     metadata = json.load(f)
                     epsilon = metadata.get('epsilon', 1.0)
-                    min_iteration = metadata.get('min_iteration', float('inf'))
+                    max_total = metadata.get('max_total', float('inf'))
                     latest_episode = metadata.get('episode', 0)
                 global_agent.epsilon = epsilon
                 global_agent.load(latest_checkpoint)
-                global_agent.iteration_history, global_agent.score_history, latest_episode = load_history()
+                global_agent.total_history, global_agent.score_history, latest_episode = load_history()
                 print(f"Loaded checkpoint (Episode {latest_episode}, Epsilon: {epsilon})")
         else:
             print("No checkpoint found. Starting from scratch.")
 
-    return metadata, epsilon, min_iteration, all_checkpoints, latest_episode
+    return metadata, epsilon, max_total, all_checkpoints, latest_episode
